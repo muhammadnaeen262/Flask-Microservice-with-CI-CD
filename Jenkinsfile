@@ -13,6 +13,13 @@ pipeline {
             }
         }
 
+        stage('Test') {
+            steps {
+                sh 'pip install -r requirements.txt'
+                sh 'pytest tests/'
+            }
+        }
+
         stage('Build Docker Image') {
             steps {
                 script {
@@ -35,16 +42,12 @@ pipeline {
             }
         }
 
-        stage('Deploy Locally') {
+        stage('Deploy to Kubernetes') {
             steps {
-                script {
-                    sh """
-                      docker stop my-python-app || true
-                      docker rm my-python-app || true
-                      docker pull $IMAGE_TAG
-                      docker run -d --name my-python-app -p 5000:5000 $IMAGE_TAG
-                    """
-                }
+                sh """
+                    kubectl apply -f k8s/deployment.yaml
+                    kubectl apply -f k8s/service.yaml
+                """
             }
         }
     }

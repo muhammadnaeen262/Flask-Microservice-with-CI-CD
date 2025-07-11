@@ -1,5 +1,11 @@
+import sys
+import os
 import pytest
-from calculator import app
+
+# 👇 This line makes sure Python can find `calculator.py`
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from calculator import app  # ✅ Now this will work!
 
 @pytest.fixture
 def client():

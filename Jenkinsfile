@@ -65,6 +65,7 @@ pipeline {
     environment {
         IMAGE_NAME = "mnaiem262/my-python-app"
         DOCKER_CREDENTIALS_ID = "dockerhub"
+        KUBECONFIG = '/var/lib/jenkins/.kube/config'
     }
 
     stages {

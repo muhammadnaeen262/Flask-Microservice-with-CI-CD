@@ -140,7 +140,7 @@ pipeline {
         IMAGE_NAME = "mnaiem262/my-python-app"
         DOCKER_CREDENTIALS_ID = "dockerhub"
         KUBECONFIG = '/var/lib/jenkins/.kube/config'
-        IMAGE_TAG = ''
+        IMAGE_TAG = '' // Will be set in Init stage
     }
 
     stages {
@@ -154,8 +154,10 @@ pipeline {
             steps {
                 script {
                     def commitSha = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-                    env.IMAGE_TAG = "${env.IMAGE_NAME}:${commitSha}"
-                    echo "🔖 IMAGE_TAG set to: ${env.IMAGE_TAG}"
+                    def tag = "${IMAGE_NAME}:${commitSha}"
+                    echo "🔖 Commit SHA: ${commitSha}"
+                    echo "🔖 Resolved tag: ${tag}"
+                    env.IMAGE_TAG = tag
                 }
             }
         }
@@ -163,23 +165,39 @@ pipeline {
         stage('Test') {
             steps {
                 sh 'python3 -m venv venv'
-                sh '. venv/bin/activate && pip install -r requirements.txt && pytest tests/'
+                sh '''
+                    . venv/bin/activate
+                    pip install -r requirements.txt
+                    pytest tests/
+                '''
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                sh 'docker build -t $IMAGE_TAG .'
+                script {
+                    if (!env.IMAGE_TAG?.trim()) {
+                        error("❌ IMAGE_TAG is undefined. Aborting Docker build.")
+                    }
+                }
+                sh '''
+                    echo "🏗️ Building Docker image with tag: $IMAGE_TAG"
+                    docker build -t $IMAGE_TAG .
+                '''
             }
         }
 
         stage('Push to Docker Hub') {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS_ID}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
-                    sh 'docker push $IMAGE_TAG'
-                    sh 'docker tag $IMAGE_TAG $IMAGE_NAME:latest'
-                    sh 'docker push $IMAGE_NAME:latest'
+                    sh '''
+                        echo "🔐 Logging in to Docker Hub..."
+                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                        echo "📤 Pushing image $IMAGE_TAG"
+                        docker push $IMAGE_TAG
+                        docker tag $IMAGE_TAG $IMAGE_NAME:latest
+                        docker push $IMAGE_NAME:latest
+                    '''
                 }
             }
         }
@@ -187,6 +205,7 @@ pipeline {
         stage('Deploy Locally via Docker') {
             steps {
                 sh '''
+                    echo "🚀 Deploying locally..."
                     docker stop my-python-app || true
                     docker rm my-python-app || true
                     docker pull $IMAGE_TAG
@@ -198,6 +217,7 @@ pipeline {
         stage('Deploy to Kubernetes (Minikube)') {
             steps {
                 sh '''
+                    echo "📦 Deploying to Kubernetes (Minikube)..."
                     export KUBECONFIG=/var/lib/jenkins/.kube/config
                     kubectl apply --validate=false -f k8s/deployment.yaml
                     kubectl apply --validate=false -f k8s/service.yaml

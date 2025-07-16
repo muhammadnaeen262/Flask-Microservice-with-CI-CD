@@ -140,7 +140,6 @@ pipeline {
         IMAGE_NAME = "mnaiem262/my-python-app"
         DOCKER_CREDENTIALS_ID = "dockerhub"
         KUBECONFIG = '/var/lib/jenkins/.kube/config'
-        // IMAGE_TAG is now declared globally but will be set later
         IMAGE_TAG = ''
     }
 
@@ -148,6 +147,16 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
+            }
+        }
+
+        stage('Init Variables') {
+            steps {
+                script {
+                    def commitSha = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                    env.IMAGE_TAG = "${env.IMAGE_NAME}:${commitSha}"
+                    echo "🔖 IMAGE_TAG set to: ${env.IMAGE_TAG}"
+                }
             }
         }
 
@@ -160,10 +169,6 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                script {
-                    def COMMIT_SHA = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-                    env.IMAGE_TAG = "${env.IMAGE_NAME}:${COMMIT_SHA}"
-                }
                 sh 'docker build -t $IMAGE_TAG .'
             }
         }

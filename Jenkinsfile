@@ -133,6 +133,7 @@
 //     }
 // }
 //#####################################################################################
+
 pipeline {
     agent any
 
@@ -140,25 +141,12 @@ pipeline {
         IMAGE_NAME = "mnaiem262/my-python-app"
         DOCKER_CREDENTIALS_ID = "dockerhub"
         KUBECONFIG = '/var/lib/jenkins/.kube/config'
-        IMAGE_TAG = '' // Will be set in Init stage
     }
 
     stages {
         stage('Checkout') {
             steps {
                 checkout scm
-            }
-        }
-
-        stage('Init Variables') {
-            steps {
-                script {
-                    def commitSha = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-                    def tag = "${IMAGE_NAME}:${commitSha}"
-                    echo "🔖 Commit SHA: ${commitSha}"
-                    echo "🔖 Resolved tag: ${tag}"
-                    env.IMAGE_TAG = tag
-                }
             }
         }
 
@@ -176,41 +164,43 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    if (!env.IMAGE_TAG?.trim()) {
-                        error("❌ IMAGE_TAG is undefined. Aborting Docker build.")
-                    }
+                    def commitSha = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                    def imageTag = "${IMAGE_NAME}:${commitSha}"
+                    echo "🏗️ Building Docker image with tag: ${imageTag}"
+                    sh "docker build -t ${imageTag} ."
+                    // Stash the tag for reuse
+                    writeFile file: 'image_tag.txt', text: imageTag
                 }
-                sh '''
-                    echo "🏗️ Building Docker image with tag: $IMAGE_TAG"
-                    docker build -t $IMAGE_TAG .
-                '''
             }
         }
 
         stage('Push to Docker Hub') {
             steps {
-                withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS_ID}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    sh '''
-                        echo "🔐 Logging in to Docker Hub..."
-                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-                        echo "📤 Pushing image $IMAGE_TAG"
-                        docker push $IMAGE_TAG
-                        docker tag $IMAGE_TAG $IMAGE_NAME:latest
-                        docker push $IMAGE_NAME:latest
-                    '''
+                script {
+                    def imageTag = readFile('image_tag.txt').trim()
+                    withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS_ID}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                        sh '''
+                            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                        '''
+                        sh "docker push ${imageTag}"
+                        sh "docker tag ${imageTag} ${IMAGE_NAME}:latest"
+                        sh "docker push ${IMAGE_NAME}:latest"
+                    }
                 }
             }
         }
 
         stage('Deploy Locally via Docker') {
             steps {
-                sh '''
-                    echo "🚀 Deploying locally..."
-                    docker stop my-python-app || true
-                    docker rm my-python-app || true
-                    docker pull $IMAGE_TAG
-                    docker run -d --name my-python-app -p 5000:5000 $IMAGE_TAG
-                '''
+                script {
+                    def imageTag = readFile('image_tag.txt').trim()
+                    sh """
+                        docker stop my-python-app || true
+                        docker rm my-python-app || true
+                        docker pull ${imageTag}
+                        docker run -d --name my-python-app -p 5000:5000 ${imageTag}
+                    """
+                }
             }
         }
 
@@ -235,11 +225,13 @@ pipeline {
     post {
         always {
             script {
-                if (env.IMAGE_TAG?.trim()) {
-                    echo "✅ Pipeline complete: ${env.IMAGE_TAG} deployed and tests passed."
-                } else {
-                    echo "⚠️ Pipeline ran but IMAGE_TAG not defined."
+                def imageTag = 'undefined'
+                if (fileExists('image_tag.txt')) {
+                    imageTag = readFile('image_tag.txt').trim()
                 }
+                echo imageTag != 'undefined' 
+                    ? "✅ Pipeline complete: ${imageTag} deployed and tests passed."
+                    : "⚠️ Pipeline ran but IMAGE_TAG not available."
             }
         }
 

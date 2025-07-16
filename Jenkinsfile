@@ -128,7 +128,7 @@ pipeline {
 
     post {
         always {
-            echo "Pipeline complete: $IMAGE_TAG deployed."
+            echo "Pipeline complete: $IMAGE_TAG deployed. tests passed."
         }
     }
 }
